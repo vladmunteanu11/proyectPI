@@ -1,0 +1,9 @@
+C:\Users\vladm\AppData\Local\Programs\CLion\bin\cmake\win\bin\cmake.exe -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=C:/Users/vladm/AppData/Local/Programs/CLion/bin/ninja/win/ninja.exe -G Ninja -S C:\Users\vladm\CLionProjects\RedEyeCorrection -B C:\Users\vladm\CLionProjects\RedEyeCorrection\cmake-build-debug
+-- OpenCV ARCH: x64
+-- OpenCV RUNTIME: vc16
+-- OpenCV STATIC: OFF
+-- Found OpenCV 4.11.0 in C:/AN3/Semestrul_2/PI/setup/opencv/build/x64/vc16/lib
+-- You might need to add C:\AN3\Semestrul_2\PI\setup\opencv\build\x64\vc16\bin to your PATH to be able to run your applications.
+-- Configuring done
+-- Generating done
+-- Build files have been written to: C:/Users/vladm/CLionProjects/RedEyeCorrection/cmake-build-debug
