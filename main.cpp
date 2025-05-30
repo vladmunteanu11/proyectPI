@@ -1,5 +1,6 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include "test_suite.h"
 
 using namespace std;
 using namespace cv;
@@ -215,13 +216,13 @@ labels BFS_labeling(Mat source) {
     return result;
 }
 
-// Structure for bounding rectangle
-struct circumscribed_rectangle_coord {
-    int r_min;
-    int r_max;
-    int c_min;
-    int c_max;
-};
+//// Structure for bounding rectangle
+//struct circumscribed_rectangle_coord {
+//    int r_min;
+//    int r_max;
+//    int c_min;
+//    int c_max;
+//};
 
 // Compute bounding rectangles for each component
 vector<circumscribed_rectangle_coord> compute_bounding_boxes(Mat binary_object, labels component_labels) {
@@ -817,9 +818,17 @@ Mat draw_bounding_boxes(Mat image, vector<circumscribed_rectangle_coord> boxes, 
     return result;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     // Load image
-    Mat image = imread("C:\\Users\\vladm\\CLionProjects\\RedEyeCorrection\\images\\far.jpg");
+
+    if (argc > 1 && string(argv[1]) == "--test") {
+        SimpleRedEyeTester tester;
+        tester.run_all_tests();
+        return 0;
+    }
+
+
+    Mat image = imread("C:\\Users\\vladm\\CLionProjects\\RedEyeCorrection2\\images\\smiley.jpg");
     if(image.empty()) {
         cout << "Error: Could not load image" << endl;
         return -1;

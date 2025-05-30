@@ -1,0 +1,3 @@
+C:/Users/vladm/CLionProjects/RedEyeCorrection2/build/CMakeFiles/RedEyeCorrection.dir
+C:/Users/vladm/CLionProjects/RedEyeCorrection2/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/vladm/CLionProjects/RedEyeCorrection2/build/CMakeFiles/ZERO_CHECK.dir

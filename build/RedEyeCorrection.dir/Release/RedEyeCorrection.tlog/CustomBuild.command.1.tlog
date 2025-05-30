@@ -1,0 +1,10 @@
+^C:\USERS\VLADM\CLIONPROJECTS\REDEYECORRECTION2\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/vladm/CLionProjects/RedEyeCorrection2 -BC:/Users/vladm/CLionProjects/RedEyeCorrection2/build --check-stamp-file C:/Users/vladm/CLionProjects/RedEyeCorrection2/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
