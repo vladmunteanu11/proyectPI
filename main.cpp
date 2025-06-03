@@ -1,9 +1,15 @@
+// COMPARISON: Original Functions vs Improved Functions (Side by Side)
+// ORIGINAL functions remain COMPLETELY UNCHANGED
+// NEW _improved functions added for comparison
+
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include "test_suite.h"
 
 using namespace std;
 using namespace cv;
+
+// ===== ALL ORIGINAL FUNCTIONS (UNCHANGED) =====
 
 // Function to check if a point is inside an image
 bool IsInside(Mat img, int i, int j) {
@@ -216,7 +222,7 @@ labels BFS_labeling(Mat source) {
     return result;
 }
 
-//// Structure for bounding rectangle
+// Structure for bounding rectangle
 //struct circumscribed_rectangle_coord {
 //    int r_min;
 //    int r_max;
@@ -299,7 +305,7 @@ Mat preprocess_for_face_detection(Mat image) {
     return center_mask;
 }
 
-// Improved skin detection with stricter parameters
+// ===== ORIGINAL SKIN DETECTION (UNCHANGED) =====
 Mat detect_skin(image_channels_hsv hsv_channels, image_channels_bgr bgr_channels) {
     int rows = hsv_channels.H.rows;
     int cols = hsv_channels.H.cols;
@@ -336,7 +342,85 @@ Mat detect_skin(image_channels_hsv hsv_channels, image_channels_bgr bgr_channels
     return skin_mask;
 }
 
-// Improved face detection that avoids selecting the whole image
+// ===== NEW IMPROVED SKIN DETECTION (FOR DARKER SKIN TONES) =====
+Mat detect_skin_improved(image_channels_hsv hsv_channels, image_channels_bgr bgr_channels) {
+    int rows = hsv_channels.H.rows;
+    int cols = hsv_channels.H.cols;
+
+    Mat skin_mask = Mat(rows, cols, CV_8UC1, Scalar(255));
+
+    for(int i = 0; i < rows; i++) {
+        for(int j = 0; j < cols; j++) {
+            float h = hsv_channels.H.at<float>(i, j);
+            float s = hsv_channels.S.at<float>(i, j);
+            float v = hsv_channels.V.at<float>(i, j);
+
+            // Get RGB values for additional checks
+            int r = bgr_channels.R.at<uchar>(i, j);
+            int g = bgr_channels.G.at<uchar>(i, j);
+            int b = bgr_channels.B.at<uchar>(i, j);
+
+            // IMPROVED 1: Extended hue range for diverse skin tones
+            // ORIGINAL: (h >= 0 && h <= 25) || (h >= 335 && h <= 360)
+            // IMPROVED: More inclusive hue range
+            bool is_skin_hue = (h >= 0 && h <= 35) || (h >= 310 && h <= 360);
+
+            // IMPROVED 2: Adaptive saturation based on brightness
+            // ORIGINAL: Fixed (s >= 0.1f && s <= 0.6f)
+            // IMPROVED: Different thresholds for dark vs light skin
+            float sat_min, sat_max;
+            if(v < 0.4f) { // Darker skin tones
+                sat_min = 0.05f;  // Much lower minimum
+                sat_max = 0.8f;   // Higher maximum
+            } else { // Lighter skin tones
+                sat_min = 0.08f;  // Slightly lower
+                sat_max = 0.65f;  // Slightly higher
+            }
+            bool is_proper_saturation = (s >= sat_min && s <= sat_max);
+
+            // IMPROVED 3: Extended value range for darker skin
+            // ORIGINAL: (v >= 0.4f && v <= 0.9f) - excluded dark skin
+            // IMPROVED: Include darker skin tones
+            bool is_proper_value = (v >= 0.2f && v <= 0.95f);
+
+            // IMPROVED 4: Flexible RGB criteria for different skin tones
+            // ORIGINAL: Fixed thresholds favoring light skin
+            // IMPROVED: Adaptive thresholds
+            bool rgb_check;
+            if(v < 0.4f) { // For darker skin tones
+                rgb_check = (r > 50) && (g > 20) && (b > 10) &&  // Much lower thresholds
+                            (r >= g) && // Allow r=g for some dark skin
+                            (abs(r - g) > 5);  // Reduced difference
+            } else { // For lighter skin tones
+                rgb_check = (r > 80) && (g > 35) && (b > 18) &&  // Slightly relaxed
+                            (r > g) && (r > b) &&
+                            (abs(r - g) > 12);  // Slightly reduced
+            }
+
+            // IMPROVED 5: Additional YCrCb-like check for very dark skin
+            float intensity = (r + g + b) / 3.0f;
+            bool is_very_dark_skin = false;
+
+            if(intensity < 80) { // Very dark regions
+                float cr_like = r - (g * 0.587f + b * 0.114f);
+                float cb_like = b - (r * 0.299f + g * 0.587f);
+
+                // Very dark skin still has red-yellow undertones
+                is_very_dark_skin = (cr_like > -20 && cr_like < 40) &&
+                                    (cb_like > -30 && cb_like < 20);
+            }
+
+            if((is_skin_hue && is_proper_saturation && is_proper_value && rgb_check) ||
+               is_very_dark_skin) {
+                skin_mask.at<uchar>(i, j) = 0;  // Mark as skin
+            }
+        }
+    }
+
+    return skin_mask;
+}
+
+// ===== ORIGINAL FACE DETECTION (UNCHANGED) =====
 vector<circumscribed_rectangle_coord> detect_faces(Mat image) {
     // Break image into channels
     image_channels_bgr bgr_channels = break_channels(image);
@@ -410,7 +494,87 @@ vector<circumscribed_rectangle_coord> detect_faces(Mat image) {
     return face_candidates;
 }
 
-// Eye detection within a face region using gradient and color information
+// ===== NEW IMPROVED FACE DETECTION (USES IMPROVED SKIN DETECTION) =====
+vector<circumscribed_rectangle_coord> detect_faces_improved(Mat image) {
+    // Break image into channels
+    image_channels_bgr bgr_channels = break_channels(image);
+    image_channels_hsv hsv_channels = bgr_2_hsv(bgr_channels);
+
+    // First, focus on the central region of the image
+    Mat center_mask = preprocess_for_face_detection(image);
+
+    // IMPROVEMENT: Use enhanced skin detection for darker skin tones
+    Mat skin_mask = detect_skin_improved(hsv_channels, bgr_channels);
+
+    // Combine with center mask to focus only on central region
+    for(int i = 0; i < skin_mask.rows; i++) {
+        for(int j = 0; j < skin_mask.cols; j++) {
+            if(center_mask.at<uchar>(i, j) == 255) { // If not in center region
+                skin_mask.at<uchar>(i, j) = 255;     // Set to background
+            }
+        }
+    }
+
+    // Setup morphological operations
+    int di[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+    int dj[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    neighborhood_structure n8 = {di, dj, 8};
+
+    // IMPROVED: Optimized morphological operations for performance
+    Mat cleaned_mask = opening(skin_mask, n8, 1);    // Remove noise
+    cleaned_mask = closing(cleaned_mask, n8, 1);     // Reduced iterations for speed
+    cleaned_mask = opening(cleaned_mask, n8, 1);     // Clean edges
+
+    // Find connected components
+    labels component_labels = BFS_labeling(cleaned_mask);
+    vector<int> areas = compute_areas(cleaned_mask, component_labels);
+    vector<circumscribed_rectangle_coord> boxes = compute_bounding_boxes(cleaned_mask, component_labels);
+
+    // IMPROVED: Slightly relaxed face candidate selection
+    vector<circumscribed_rectangle_coord> face_candidates;
+    int total_area = image.rows * image.cols;
+
+    // Sort components by area (descending)
+    vector<pair<int, int>> area_indices;
+    for(int i = 1; i <= component_labels.no_labels; i++) {
+        area_indices.push_back({areas[i], i});
+    }
+    sort(area_indices.begin(), area_indices.end(), greater<pair<int, int>>());
+
+    // Take largest component that meets relaxed face criteria
+    for(auto& p : area_indices) {
+        int area = p.first;
+        int idx = p.second;
+
+        // IMPROVED: Slightly relaxed size constraints
+        // ORIGINAL: (area > total_area * 0.05) - too restrictive for some dark faces
+        // IMPROVED: Lower minimum to catch darker faces
+        bool is_proper_size = (area > total_area * 0.03) && (area < total_area * 0.7);
+
+        // IMPROVED: More flexible aspect ratio
+        // ORIGINAL: (aspect_ratio >= 0.7 && aspect_ratio <= 1.3)
+        // IMPROVED: Slightly more flexible
+        float aspect_ratio = compute_aspect_ratio(boxes[idx]);
+        bool has_face_aspect_ratio = (aspect_ratio >= 0.6 && aspect_ratio <= 1.5);
+
+        // IMPROVED: Slightly more forgiving centering
+        // ORIGINAL: 0.25-0.75 range
+        // IMPROVED: 0.2-0.8 range
+        int center_x = (boxes[idx].c_min + boxes[idx].c_max) / 2;
+        int center_y = (boxes[idx].r_min + boxes[idx].r_max) / 2;
+        bool is_centered = (center_x > image.cols * 0.2 && center_x < image.cols * 0.8 &&
+                            center_y > image.rows * 0.2 && center_y < image.rows * 0.8);
+
+        if(is_proper_size && has_face_aspect_ratio && is_centered) {
+            face_candidates.push_back(boxes[idx]);
+            break;  // Still single person focus
+        }
+    }
+
+    return face_candidates;
+}
+
+// ===== ORIGINAL EYE DETECTION (UNCHANGED) =====
 vector<circumscribed_rectangle_coord> detect_eyes(Mat image, circumscribed_rectangle_coord face) {
     // Focus specifically on the eye region within the face
     int face_height = face.r_max - face.r_min + 1;
@@ -602,7 +766,163 @@ vector<circumscribed_rectangle_coord> detect_eyes(Mat image, circumscribed_recta
     return eye_regions;
 }
 
-// Red-eye detection and correction
+// ===== NEW IMPROVED EYE DETECTION (FOR CLOSED EYES) =====
+vector<circumscribed_rectangle_coord> detect_eyes_improved(Mat image, circumscribed_rectangle_coord face) {
+    int face_height = face.r_max - face.r_min + 1;
+    int face_width = face.c_max - face.c_min + 1;
+
+    // IMPROVED 1: Expanded eye region (30% -> 40%)
+    // ORIGINAL: eye_region_height = face_height * 0.3;
+    // IMPROVED: Larger region to catch closed eyes and eyebrows
+    int eye_region_height = face_height * 0.4;
+    int r_min = face.r_min + face_height * 0.15;  // Start earlier (was 18%)
+    int r_max = r_min + eye_region_height;
+
+    // IMPROVED 2: Wider horizontal search
+    // ORIGINAL: width_margin = face_width * 0.1;
+    // IMPROVED: Smaller margin for wider search
+    int width_margin = face_width * 0.05;
+    int c_min = face.c_min + width_margin;
+    int c_max = face.c_max - width_margin;
+
+    // Bounds checking
+    r_min = max(0, r_min);
+    r_max = min(image.rows - 1, r_max);
+    c_min = max(0, c_min);
+    c_max = min(image.cols - 1, c_max);
+
+    // Extract the eye region
+    Mat eye_roi = image(Range(r_min, r_max + 1), Range(c_min, c_max + 1)).clone();
+
+    // Convert to grayscale
+    Mat grayscale = Mat(eye_roi.rows, eye_roi.cols, CV_8UC1);
+    for(int i = 0; i < eye_roi.rows; i++) {
+        for(int j = 0; j < eye_roi.cols; j++) {
+            grayscale.at<uchar>(i, j) = (eye_roi.at<Vec3b>(i, j)[0] +
+                                         eye_roi.at<Vec3b>(i, j)[1] +
+                                         eye_roi.at<Vec3b>(i, j)[2]) / 3;
+        }
+    }
+
+    // IMPROVED 3: Simplified histogram equalization for performance
+    // ORIGINAL: Complex histogram equalization
+    // IMPROVED: Skip for speed (closed eyes don't need as much contrast enhancement)
+    Mat equalized = grayscale.clone();
+
+    // Create a binary map for eye candidates
+    Mat eye_candidates = Mat(equalized.rows, equalized.cols, CV_8UC1, Scalar(255));
+
+    // Extract color information
+    image_channels_bgr bgr_channels = break_channels(eye_roi);
+    image_channels_hsv hsv_channels = bgr_2_hsv(bgr_channels);
+
+    // IMPROVED 4: Enhanced detection for closed eyes and eyebrows
+    for(int i = 0; i < eye_roi.rows; i++) {
+        for(int j = 0; j < eye_roi.cols; j++) {
+            Vec3b pixel = eye_roi.at<Vec3b>(i, j);
+            int b = pixel[0];
+            int g = pixel[1];
+            int r = pixel[2];
+
+            float h = hsv_channels.H.at<float>(i, j);
+            float s = hsv_channels.S.at<float>(i, j);
+            float v = hsv_channels.V.at<float>(i, j);
+
+            // ORIGINAL: Only pupil, iris, red-eye
+            bool is_pupil = (v < 0.45f) && (equalized.at<uchar>(i, j) < 100);
+            bool is_iris = (h >= 180 && h <= 250) && (s > 0.2f && s < 0.7f);
+            bool is_red_eye = (r > 120) && (r > b * 1.4) && (r > g * 1.4);
+
+            // IMPROVED: Additional criteria for closed eyes
+            bool is_dark_area = (v < 0.6f);  // Detect darker areas (eyes, eyebrows, lashes)
+            bool is_eye_color = (equalized.at<uchar>(i, j) < 120); // More inclusive threshold
+
+            // IMPROVED: Include eyebrow and eyelash areas for closed eyes
+            bool is_eyebrow_area = (v < 0.45f) && (s > 0.15f);
+
+            // IMPROVED: Detect eye shadow areas around closed eyes
+            bool is_eye_shadow = (v < 0.5f) && (h >= 20 && h <= 60); // Brown/dark tones
+
+            if(is_pupil || is_red_eye || is_iris || is_dark_area || is_eye_color ||
+               is_eyebrow_area || is_eye_shadow) {
+                eye_candidates.at<uchar>(i, j) = 0;
+            }
+        }
+    }
+
+    // Apply morphological operations
+    int di[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+    int dj[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    neighborhood_structure n8 = {di, dj, 8};
+
+    // IMPROVED 5: Less aggressive morphological operations
+    Mat cleaned = opening(eye_candidates, n8, 1);
+    cleaned = closing(cleaned, n8, 1);
+
+    // Find connected components
+    labels component_labels = BFS_labeling(cleaned);
+    vector<int> areas = compute_areas(cleaned, component_labels);
+    vector<circumscribed_rectangle_coord> boxes = compute_bounding_boxes(cleaned, component_labels);
+
+    // IMPROVED 6: More flexible filtering for closed eyes
+    vector<circumscribed_rectangle_coord> eye_regions;
+
+    // IMPROVED: Larger expected sizes for closed eyes (include eyebrows)
+    float expected_eye_width = face_width * 0.12f;   // Larger (was 0.1)
+    float expected_eye_height = face_height * 0.08f; // Larger for closed eyes (was 0.05)
+
+    for(int i = 1; i <= component_labels.no_labels; i++) {
+        int comp_width = boxes[i].c_max - boxes[i].c_min + 1;
+        int comp_height = boxes[i].r_max - boxes[i].r_min + 1;
+
+        // IMPROVED 7: More inclusive size constraints
+        // ORIGINAL: very restrictive (0.4f-2.0f width, 0.4f-2.0f height)
+        // IMPROVED: More flexible for closed eyes
+        bool proper_size = (comp_width >= expected_eye_width * 0.3f) &&  // More inclusive (was 0.4)
+                           (comp_width <= expected_eye_width * 3.0f) &&   // More inclusive (was 2.0)
+                           (comp_height >= expected_eye_height * 0.3f) && // More inclusive (was 0.4)
+                           (comp_height <= expected_eye_height * 3.0f);   // More inclusive (was 2.0)
+
+        // IMPROVED 8: More flexible aspect ratio for closed eyes
+        // ORIGINAL: (aspect_ratio >= 0.7f && aspect_ratio <= 2.0f)
+        // IMPROVED: Closed eyes can be very wide (eyebrows) or very flat
+        float aspect_ratio = (float)comp_width / (float)comp_height;
+        bool proper_shape = (aspect_ratio >= 0.4f && aspect_ratio <= 4.0f);
+
+        // IMPROVED 9: Relaxed area constraints
+        // ORIGINAL: min_area = 30, max_area = face_width * face_height * 0.01
+        // IMPROVED: Allow larger areas for eyebrow regions
+        int min_area = 20;  // Smaller minimum
+        int max_area = face_width * face_height * 0.03; // Larger maximum (was 0.01)
+        bool proper_area = (areas[i] > min_area && areas[i] < max_area);
+
+        if(proper_size && proper_shape && proper_area) {
+            circumscribed_rectangle_coord eye_in_original;
+            eye_in_original.r_min = boxes[i].r_min + r_min;
+            eye_in_original.r_max = boxes[i].r_max + r_min;
+            eye_in_original.c_min = boxes[i].c_min + c_min;
+            eye_in_original.c_max = boxes[i].c_max + c_min;
+
+            eye_regions.push_back(eye_in_original);
+        }
+    }
+
+    // IMPROVED 10: Allow more eye candidates (up to 4 for closed eyes detection)
+    if(eye_regions.size() > 4) {
+        // Sort by area (largest first) and keep top 4
+        sort(eye_regions.begin(), eye_regions.end(),
+             [&](const circumscribed_rectangle_coord& a, const circumscribed_rectangle_coord& b) {
+                 int area_a = (a.r_max - a.r_min + 1) * (a.c_max - a.c_min + 1);
+                 int area_b = (b.r_max - b.r_min + 1) * (b.c_max - b.c_min + 1);
+                 return area_a > area_b;
+             });
+        eye_regions.resize(4);
+    }
+
+    return eye_regions;
+}
+
+// Red-eye detection and correction (unchanged)
 Mat detect_and_correct_red_eyes(Mat image, vector<circumscribed_rectangle_coord> eyes) {
     Mat result = image.clone();
 
@@ -818,21 +1138,241 @@ Mat draw_bounding_boxes(Mat image, vector<circumscribed_rectangle_coord> boxes, 
     return result;
 }
 
-int main(int argc, char* argv[]) {
-    // Load image
+// ===== COMPARISON FUNCTIONS =====
 
+void compare_skin_detection(Mat image, string test_name) {
+    cout << "\n=== SKIN DETECTION COMPARISON: " << test_name << " ===" << endl;
+
+    image_channels_bgr bgr_channels = break_channels(image);
+    image_channels_hsv hsv_channels = bgr_2_hsv(bgr_channels);
+
+    auto start_orig = chrono::high_resolution_clock::now();
+    Mat mask_original = detect_skin(hsv_channels, bgr_channels);
+    auto end_orig = chrono::high_resolution_clock::now();
+
+    auto start_imp = chrono::high_resolution_clock::now();
+    Mat mask_improved = detect_skin_improved(hsv_channels, bgr_channels);
+    auto end_imp = chrono::high_resolution_clock::now();
+
+    double time_orig = chrono::duration<double, milli>(end_orig - start_orig).count();
+    double time_imp = chrono::duration<double, milli>(end_imp - start_imp).count();
+
+    // Count skin pixels detected
+    int pixels_orig = 0, pixels_imp = 0;
+    for(int i = 0; i < mask_original.rows; i++) {
+        for(int j = 0; j < mask_original.cols; j++) {
+            if(mask_original.at<uchar>(i, j) == 0) pixels_orig++;
+            if(mask_improved.at<uchar>(i, j) == 0) pixels_imp++;
+        }
+    }
+
+    cout << "ORIGINAL detect_skin():" << endl;
+    cout << "  Skin pixels detected: " << pixels_orig << endl;
+    cout << "  Processing time: " << time_orig << " ms" << endl;
+
+    cout << "IMPROVED detect_skin_improved():" << endl;
+    cout << "  Skin pixels detected: " << pixels_imp << endl;
+    cout << "  Processing time: " << time_imp << " ms" << endl;
+
+    cout << "IMPROVEMENT:" << endl;
+    int pixel_increase = pixels_imp - pixels_orig;
+    if(pixel_increase > 0) {
+        cout << "  ✅ +" << pixel_increase << " more skin pixels detected (+"
+             << (100.0 * pixel_increase / max(1, pixels_orig)) << "%)" << endl;
+    } else if(pixel_increase == 0) {
+        cout << "  ➖ Same number of pixels detected" << endl;
+    } else {
+        cout << "  ❌ " << abs(pixel_increase) << " fewer pixels detected" << endl;
+    }
+
+    // Create visual comparison
+    Mat comparison(image.rows, image.cols * 2, CV_8UC3);
+
+    // Apply masks to original image for visualization
+    Mat orig_result = image.clone();
+    Mat imp_result = image.clone();
+
+    for(int i = 0; i < image.rows; i++) {
+        for(int j = 0; j < image.cols; j++) {
+            if(mask_original.at<uchar>(i, j) == 255) {
+                orig_result.at<Vec3b>(i, j) = Vec3b(50, 50, 50); // Darken non-skin
+            }
+            if(mask_improved.at<uchar>(i, j) == 255) {
+                imp_result.at<Vec3b>(i, j) = Vec3b(50, 50, 50); // Darken non-skin
+            }
+        }
+    }
+
+    orig_result.copyTo(comparison(Rect(0, 0, image.cols, image.rows)));
+    imp_result.copyTo(comparison(Rect(image.cols, 0, image.cols, image.rows)));
+
+    string window_name = "Skin Detection: " + test_name + " (Original vs Improved)";
+    imshow(window_name, comparison);
+}
+
+void compare_face_detection(Mat image, string test_name) {
+    cout << "\n=== FACE DETECTION COMPARISON: " << test_name << " ===" << endl;
+
+    auto start_orig = chrono::high_resolution_clock::now();
+    vector<circumscribed_rectangle_coord> faces_orig = detect_faces(image);
+    auto end_orig = chrono::high_resolution_clock::now();
+
+    auto start_imp = chrono::high_resolution_clock::now();
+    vector<circumscribed_rectangle_coord> faces_imp = detect_faces_improved(image);
+    auto end_imp = chrono::high_resolution_clock::now();
+
+    double time_orig = chrono::duration<double, milli>(end_orig - start_orig).count();
+    double time_imp = chrono::duration<double, milli>(end_imp - start_imp).count();
+
+    cout << "ORIGINAL detect_faces():" << endl;
+    cout << "  Faces detected: " << faces_orig.size() << endl;
+    cout << "  Processing time: " << time_orig << " ms" << endl;
+
+    cout << "IMPROVED detect_faces_improved():" << endl;
+    cout << "  Faces detected: " << faces_imp.size() << endl;
+    cout << "  Processing time: " << time_imp << " ms" << endl;
+
+    cout << "IMPROVEMENT:" << endl;
+    int face_diff = faces_imp.size() - faces_orig.size();
+    if(face_diff > 0) {
+        cout << "  ✅ +" << face_diff << " more faces detected" << endl;
+    } else if(face_diff == 0) {
+        cout << "  ➖ Same number of faces detected" << endl;
+    } else {
+        cout << "  ❌ " << abs(face_diff) << " fewer faces detected" << endl;
+    }
+
+    // Visual comparison
+    Mat result_orig = draw_bounding_boxes(image, faces_orig, Scalar(0, 0, 255)); // Red for original
+    Mat result_imp = draw_bounding_boxes(image, faces_imp, Scalar(0, 255, 0));   // Green for improved
+
+    Mat comparison(image.rows, image.cols * 2, image.type());
+    result_orig.copyTo(comparison(Rect(0, 0, image.cols, image.rows)));
+    result_imp.copyTo(comparison(Rect(image.cols, 0, image.cols, image.rows)));
+
+    string window_name = "Face Detection: " + test_name + " (Original vs Improved)";
+    imshow(window_name, comparison);
+}
+
+void compare_eye_detection(Mat image, string test_name) {
+    cout << "\n=== EYE DETECTION COMPARISON: " << test_name << " ===" << endl;
+
+    // First get faces using improved detection
+    vector<circumscribed_rectangle_coord> faces = detect_faces_improved(image);
+
+    if(faces.empty()) {
+        cout << "No faces detected for eye comparison" << endl;
+        return;
+    }
+
+    // Compare eye detection on first face
+    circumscribed_rectangle_coord face = faces[0];
+
+    auto start_orig = chrono::high_resolution_clock::now();
+    vector<circumscribed_rectangle_coord> eyes_orig = detect_eyes(image, face);
+    auto end_orig = chrono::high_resolution_clock::now();
+
+    auto start_imp = chrono::high_resolution_clock::now();
+    vector<circumscribed_rectangle_coord> eyes_imp = detect_eyes_improved(image, face);
+    auto end_imp = chrono::high_resolution_clock::now();
+
+    double time_orig = chrono::duration<double, milli>(end_orig - start_orig).count();
+    double time_imp = chrono::duration<double, milli>(end_imp - start_imp).count();
+
+    cout << "ORIGINAL detect_eyes():" << endl;
+    cout << "  Eyes detected: " << eyes_orig.size() << endl;
+    cout << "  Processing time: " << time_orig << " ms" << endl;
+
+    cout << "IMPROVED detect_eyes_improved():" << endl;
+    cout << "  Eyes detected: " << eyes_imp.size() << endl;
+    cout << "  Processing time: " << time_imp << " ms" << endl;
+
+    cout << "IMPROVEMENT:" << endl;
+    int eye_diff = eyes_imp.size() - eyes_orig.size();
+    if(eye_diff > 0) {
+        cout << "  ✅ +" << eye_diff << " more eyes detected" << endl;
+    } else if(eye_diff == 0) {
+        cout << "  ➖ Same number of eyes detected" << endl;
+    } else {
+        cout << "  ❌ " << abs(eye_diff) << " fewer eyes detected" << endl;
+    }
+
+    // Visual comparison
+    Mat result_orig = draw_bounding_boxes(image, faces, Scalar(0, 255, 0)); // Green face
+    result_orig = draw_bounding_boxes(result_orig, eyes_orig, Scalar(0, 0, 255)); // Red eyes original
+
+    Mat result_imp = draw_bounding_boxes(image, faces, Scalar(0, 255, 0)); // Green face
+    result_imp = draw_bounding_boxes(result_imp, eyes_imp, Scalar(255, 0, 0)); // Blue eyes improved
+
+    Mat comparison(image.rows, image.cols * 2, image.type());
+    result_orig.copyTo(comparison(Rect(0, 0, image.cols, image.rows)));
+    result_imp.copyTo(comparison(Rect(image.cols, 0, image.cols, image.rows)));
+
+    string window_name = "Eye Detection: " + test_name + " (Original vs Improved)";
+    imshow(window_name, comparison);
+}
+
+// ===== MAIN FUNCTION =====
+int main(int argc, char* argv[]) {
     if (argc > 1 && string(argv[1]) == "--test") {
         SimpleRedEyeTester tester;
         tester.run_all_tests();
         return 0;
     }
 
+    if (argc > 1 && string(argv[1]) == "--compare") {
+        cout << "=== COMPREHENSIVE COMPARISON: ORIGINAL vs IMPROVED FUNCTIONS ===" << endl;
 
-    Mat image = imread("C:\\Users\\vladm\\CLionProjects\\RedEyeCorrection2\\images\\smiley.jpg");
+        // Test on sample image
+        Mat test_image = imread("C:\\Users\\vladm\\CLionProjects\\RedEyeCorrection2\\images\\dark.jpg");
+        if(test_image.empty()) {
+            cout << "Error: Could not load test image" << endl;
+            return -1;
+        }
+
+        string image_name = "Sample Image";
+
+        // 1. Compare skin detection
+        compare_skin_detection(test_image, image_name);
+
+        // 2. Compare face detection
+        compare_face_detection(test_image, image_name);
+
+        // 3. Compare eye detection
+        compare_eye_detection(test_image, image_name);
+
+        cout << "\n=== SUMMARY OF IMPROVEMENTS ===" << endl;
+        cout << "1. detect_skin_improved(): Better detection of darker skin tones" << endl;
+        cout << "   • Extended hue range: 0-35° and 310-360° (was 0-25° and 335-360°)" << endl;
+        cout << "   • Adaptive saturation thresholds based on brightness" << endl;
+        cout << "   • Extended value range: 0.2-0.95 (was 0.4-0.9)" << endl;
+        cout << "   • Flexible RGB criteria for different skin tones" << endl;
+        cout << "   • Additional YCrCb-like detection for very dark skin" << endl;
+        cout << "\n2. detect_faces_improved(): Uses improved skin detection + relaxed constraints" << endl;
+        cout << "   • Lower size threshold: 3% (was 5%) of image area" << endl;
+        cout << "   • More flexible aspect ratio: 0.6-1.5 (was 0.7-1.3)" << endl;
+        cout << "   • More forgiving centering: 20-80% (was 25-75%)" << endl;
+        cout << "\n3. detect_eyes_improved(): Better detection of closed eyes and eyebrows" << endl;
+        cout << "   • Expanded search region: 40% (was 30%) of face height" << endl;
+        cout << "   • Includes eyebrow and eyelash detection" << endl;
+        cout << "   • More flexible size and aspect ratio constraints" << endl;
+        cout << "   • Simplified processing for better performance" << endl;
+
+        cout << "\nPress any key to close all windows..." << endl;
+        waitKey(0);
+        destroyAllWindows();
+        return 0;
+    }
+
+    // Regular execution using original functions (unchanged behavior)
+    Mat image = imread("C:\\Users\\vladm\\CLionProjects\\RedEyeCorrection2\\images\\dark.jpg");
     if(image.empty()) {
         cout << "Error: Could not load image" << endl;
         return -1;
     }
+
+    cout << "=== RUNNING WITH ORIGINAL FUNCTIONS ===" << endl;
+    cout << "Use --compare flag to see Original vs Improved side-by-side comparison" << endl << endl;
 
     imshow("Original Image", image);
 
@@ -843,7 +1383,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    Mat face_detection = draw_bounding_boxes(image, faces, Scalar(0, 255, 0));  // Green boxes for faces
+    Mat face_detection = draw_bounding_boxes(image, faces, Scalar(0, 255, 0));
     imshow("Face Detection", face_detection);
 
     vector<circumscribed_rectangle_coord> all_eyes;
@@ -852,7 +1392,7 @@ int main(int argc, char* argv[]) {
         all_eyes.insert(all_eyes.end(), eyes.begin(), eyes.end());
     }
 
-    Mat eye_detection = draw_bounding_boxes(face_detection, all_eyes, Scalar(255, 0, 0));  // Blue boxes for eyes
+    Mat eye_detection = draw_bounding_boxes(face_detection, all_eyes, Scalar(255, 0, 0));
     imshow("Eye Detection", eye_detection);
 
     Mat corrected_image = detect_and_correct_red_eyes(image, all_eyes);
